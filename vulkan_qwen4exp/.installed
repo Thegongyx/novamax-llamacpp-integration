@@ -1,0 +1,8 @@
+{
+  "runtime": null,
+  "installed_at": "2026-09-01T17:17:03.206Z",
+  "variant": "vulkan",
+  "engine": "llamacpp",
+  "archiveSha256": "local-vulkan-qwen4exp-custom-build",
+  "version": "vulkan_qwen4exp"
+}
