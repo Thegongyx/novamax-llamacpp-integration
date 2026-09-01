@@ -1,0 +1,8 @@
+{
+  "runtime": null,
+  "engine": "llamacpp",
+  "archiveSha256": "local-bin-rocmfp4-custom-build",
+  "version": "roc_rocmfp4",
+  "installed_at": "2026-09-01T17:16:54.032Z",
+  "variant": "rocm"
+}
