@@ -121,7 +121,7 @@ NovaMax 发现本地引擎**不靠 engines.json**，而是扫描磁盘：
 >
 > 镜像域名用 hf-mirror.com（国内直连）。lemonade 拉取时需 `HF_ENDPOINT=https://hf-mirror.com` + 显式 `--source huggingface`。
 
-## 满电源频率速度测试（官方版两引擎）
+## 满电源频率速度测试（官方版 + fork 版）
 
 **测试条件**（与之前一致）：
 - **电源/频率**：AMD 电源档位拉满（**整机功耗约 132W**）
@@ -153,8 +153,59 @@ NovaMax 发现本地引擎**不靠 engines.json**，而是扫描磁盘：
 
 > **测试方法**：直接 spawn 引擎（冷启动，无投机）→ 发 ~1 万 token 长上下文流式请求 → 首个 token 前计 PREFILL（prompt_tokens/首token时间）→ 累计输出 ≥1000 token 后取 [1000, 末尾] 稳定段计 DECODE → kill。每场景重新加载，保证无 KVCache 干扰。
 > **备注**：
-> - **HIP prefill 显著优于 Vulkan**（373-382 vs 110-115 t/s，约 3.4 倍）；decode 两者接近（13.4-13.6 tok/s）——本版测的是**无投机 baseline**（投机解码开启时 decode 更高，见历史 fork 数据）。
+> - **HIP prefill 显著优于 Vulkan**（373-382 vs 110-115 t/s，约 3.4 倍）；decode 两者接近（13.4-13.6 tok/s）——本版测的是**无投机 baseline**（投机解码开启时 decode 更高，见下方 fork 历史数据）。
 > - 官方两引擎是同一源码的 HIP/Vulkan 构建，性能差异主要来自后端；HIP 在 prefill 上有明显优势。
+
+### fork 版引擎历史测速（旧数据，含投机解码）
+
+> 说明：下方为 fork 版引擎的**历史实测**（lemonade 加载，含投机解码 `--spec-draft-adaptive`/DFlash2，与上方官方版"无投机 baseline"方法不同，故 decode 更高）。
+
+**`vulkan_qwen4exp`（Laurent fork）—— Qwen3.8-27B-ROCmFP4-FAST（DFlash2）**
+
+| 场景 | PREFILL | DECODE |
+|---|---|---|
+| 散文 think-off | 294.0 t/s | 17.4 tok/s |
+| 代码 think-off | 295.2 t/s | 32.9 tok/s |
+| 散文 think-low | 294.2 t/s | 24.2 tok/s |
+| 代码 think-low | 292.5 t/s | 25.0 tok/s |
+
+**`vulkan_qwen4exp`（Laurent fork）—— Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix（MTP）**
+
+| 场景 | PREFILL | DECODE |
+|---|---|---|
+| 散文 think-off | 286.6 t/s | 17.4 tok/s |
+| 代码 think-off | 291.0 t/s | 41.3 tok/s |
+| 散文 think-low | 289.3 t/s | 18.3 tok/s |
+| 代码 think-low | 289.9 t/s | 24.4 tok/s |
+
+**`rocm_w4a4`（charlie fork）—— Qwen3.8-27B-ROCmI4-MTP-GGUF-Q4_0**
+
+| 场景 | PREFILL | DECODE |
+|---|---|---|
+| 散文 think-off | 439.6 t/s | 18.9 tok/s |
+| 代码 think-off | 437.4 t/s | 36.6 tok/s |
+| 散文 think-low | 434.6 t/s | 20.2 tok/s |
+| 代码 think-low | 431.5 t/s | 40.6 tok/s |
+
+**`roc_rocmfp4`（charlie fork）—— Qwen3.8-27B-ROCmFPX-GGUF**
+
+| 场景 | PREFILL | DECODE |
+|---|---|---|
+| 散文 think-off | 246.3 t/s | 13.6 tok/s |
+| 代码 think-off | 251.1 t/s | 28.5 tok/s |
+| 散文 think-low | 249.9 t/s | 14.9 tok/s |
+| 代码 think-low | 250.0 t/s | 16.3 tok/s |
+
+**`roc_rocmfp4`（charlie fork）—— Ornith-1.5-35B-A3B-ROCmFP4-GGUF（MoE）**
+
+| 场景 | PREFILL | DECODE |
+|---|---|---|
+| 散文 think-off | **1248.7 t/s** | **86.4 tok/s** |
+| 代码 think-off | **1246.4 t/s** | **82.0 tok/s** |
+| 散文 think-low | **1239.1 t/s** | **85.9 tok/s** |
+| 代码 think-low | **1246.6 t/s** | **79.6 tok/s** |
+
+> **fork 版备注**：`roc_rocmfp4` 的 Ornith-1.5-35B-A3B 是 **MoE 模型**（35B 总参 / 3B 激活），prefill ~1250 t/s、decode ~80-86 tok/s，远快于所有 dense 27B 模型（约 3-5 倍）。此数据为历史实测（含投机解码），与上方官方版"无投机 baseline"方法不同，两者不可直接数值对比。
 
 ## 引用与致谢
 
