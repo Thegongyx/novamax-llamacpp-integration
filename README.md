@@ -6,14 +6,17 @@
 
 ```
 novamax-llamacpp-integration\
-├── README.md                            ← 本文件（包说明 / 快速上手）
-├── docs\
+├── README.md                            ← 本文件（包说明 / 快速上手 / 引用致谢）
+├── docs\                                ← 文档
 │   └── novamax-llamacpp-skill\
 │       └── SKILL.md                     ← 详细技能文档（流程 + 常见坑）
-├── rocm_w4a4\                           ← 引擎样本 A：HIP/W4A4 版 (rocm)
-├── roc_rocmfp4\                         ← 引擎样本 B：HIP/ROCmFP4 版 (rocm)
-└── vulkan_qwen4exp\                     ← 引擎样本 C：Vulkan/qwen4exp 版 (vulkan)
+└── novamax-adapters\                    ← NovaMax 适配引擎（含 .installed，可直接复用）
+    ├── rocm_w4a4\                       ← 引擎 A：HIP/W4A4 版 (rocm)
+    ├── roc_rocmfp4\                     ← 引擎 B：HIP/ROCmFP4 版 (rocm)
+    └── vulkan_qwen4exp\                 ← 引擎 C：Vulkan/qwen4exp 版 (vulkan)
 ```
+
+> 说明：`novamax-adapters\` 内每个引擎目录即完整编译产物 + `.installed` 适配标记（NovaMax 仅通过 `.installed` 识别引擎，见下文"引擎发现原理"）。原始编译产物与适配版仅差一个 `.installed` 文件，故不单独存放原件。
 
 ## 三个引擎一览
 
@@ -172,3 +175,34 @@ NovaMax 发现本地引擎**不靠 engines.json**，而是扫描磁盘：
 > **备注**：
 > - rocm 后端两引擎的 PREFILL 明显优于 Vulkan（430-440 vs 290 t/s），decode 代码场景最快（ROCmI4 代码 36.6-40.6 tok/s）；ROCmFPX-GGUF 整体最慢。
 > - **Ornith-1.5-35B-A3B 是 MoE 模型**（35B 总参 / 3B 激活），prefill ~1250 t/s、decode ~80-86 tok/s，**远快于所有 dense 27B 模型**（约 3-5 倍）。这是本套引擎+硬件上的最快配置。
+
+## 引用与致谢
+
+本包中的三个 NovaMax 引擎（`rocm_w4a4` / `roc_rocmfp4` / `vulkan_qwen4exp`）均基于以下开源 GitHub 仓库编译而来，特此声明并致谢：
+
+### 编译依赖的 llama.cpp / ROCmFPx 仓库
+
+| 仓库 | 分支 | 用途 |
+|---|---|---|
+| [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp) | master | llama.cpp 上游官方仓库（本机已同步多个官方编译版本） |
+| [LaurentZuijdwijk/llama.cpp](https://github.com/LaurentZuijdwijk/llama.cpp) | `vulkan/qwen4exp-rocmfpx` | **Vulkan 引擎**（`vulkan_qwen4exp`）——含 qwen4exp 架构支持 + ROCmFPx Vulkan shader（`dequant_rocmfp4_fast.comp`） |
+| [charlie12345/ROCmFPX](https://github.com/charlie12345/ROCmFPX) | main | **HIP/ROCm 引擎**（`roc_rocmfp4` 与 `rocm_w4a4`）——ROCmFP4 量化内核 + qwen4exp 架构，HIP 路线编译 |
+| [ciru-ai/ROCmFPX](https://github.com/ciru-ai/ROCmFPX) | `ciru/upstream-rocmfpx-scale-eval` | ROCmFPx 量化内核（`rocmfp4_hip.cu`）来源调研与参考 |
+| [daimonionnn/amd-rocmfpx-for-win](https://github.com/daimonionnn/amd-rocmfpx-for-win) | main | AMD Windows 平台 ROCmFPx 移植/Benchmark 参考（`llm-inference/results` 相关） |
+
+### 各引擎对应的构建来源
+
+| 引擎目录 | 来源仓库/分支 |
+|---|---|
+| `novamax-adapters\rocm_w4a4` | charlie12345/ROCmFPX @ main（HIP/W4A4，`bin-w4a4`） |
+| `novamax-adapters\roc_rocmfp4` | charlie12345/ROCmFPX @ main（HIP/ROCmFP4，`bin-rocmfp4`） |
+| `novamax-adapters\vulkan_qwen4exp` | LaurentZuijdwijk/llama.cpp @ `vulkan/qwen4exp-rocmfpx`（`build-vulkan\bin\Release`） |
+
+### 致谢
+
+- 感谢 **ggml-org** 维护 llama.cpp 及其社区，贡献了大量投机解码、prompt cache、Vulkan/ROCm 后端等核心能力。
+- 感谢 **LaurentZuijdwijk** 的 `vulkan/qwen4exp-rocmfpx` 分支，提供了 qwen4exp（Qwen3.8-Flash-Next）架构支持与 ROCmFPx Vulkan 内核，并经 Nathanw1014 等社区成员修复了 MTP checkpoint-restore 相关问题。
+- 感谢 **charlie12345 / ciru-ai**（ROCmFPX 系列仓库）提供的 ROCmFP4/ROCmFPx 量化内核与 HIP/Vulkan 实现，使 AMD Radeon 8060S（Strix Halo）上能跑通 Qwen3.8-27B-ROCmFP4-FAST 等专有量化模型。
+- 感谢 **daimonionnn** 的 amd-rocmfpx-for-win，作为 AMD Windows 平台上的移植与性能评估参考。
+- 适配目标平台 **NovaMax**（Linglong NovaStudio）与 **lemonade / LemonadeServer** 的引擎发现与模型加载机制为本次集成提供了基础。
+- 本机工具链：Visual Studio 18 Build Tools (MSVC)、CMake、Vulkan SDK `1.4.357.0`、ROCm 7.14 (HIP 工具链)、rocBLAS/hipBLAS，均用于上述引擎的本地编译。
