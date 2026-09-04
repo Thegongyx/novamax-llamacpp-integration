@@ -104,19 +104,25 @@ NovaMax 发现本地引擎**不靠 engines.json**，而是扫描磁盘：
 | 引擎目录 | 后端 | 适配模型 | HF 镜像仓库链接 | 满频实测 |
 |---|---|---|---|---|
 | `vulkan_official` | Vulkan | Qwen3.8-27B-ROCmFP4-FAST（DFlash2 需 fork 支持） | https://hf-mirror.com/julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF | ✅ |
-| `vulkan_official` | Vulkan | Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix（MTP） | https://hf-mirror.com/agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-GGUF | ✅ |
+| `vulkan_official` | Vulkan | Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix（qwen4exp） | https://hf-mirror.com/agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-GGUF · **官方用 `v2/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-v2.gguf`（单张量）** | ✅（无投机，见下） |
 | `roc_official` | HIP | Qwen3.8-27B-ROCmI4-MTP-GGUF | https://hf-mirror.com/cafonez/Qwen3.8-27B-ROCmI4-MTP-GGUF | ✅ |
-| `roc_official` | HIP | Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix（MTP） | https://hf-mirror.com/agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-GGUF | ✅ |
+| `roc_official` | HIP | Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix（qwen4exp） | https://hf-mirror.com/agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-GGUF · **官方用 `v2/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-v2.gguf`（单张量）** | ✅（无投机，decode 慢，见下） |
 | `roc_official` | HIP | Ornith-1.5-35B-A3B-ROCmFP4-GGUF | https://hf-mirror.com/julianmb/Ornith-1.5-35B-A3B-ROCmFP4-GGUF | ✅ |
 | `vulkan_qwen4exp` | Vulkan | Qwen3.8-27B-ROCmFP4-FAST（DFlash2） | https://hf-mirror.com/julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF | ✅ |
-| `vulkan_qwen4exp` | Vulkan | Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix（MTP） | https://hf-mirror.com/agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-GGUF | ✅ |
+| `vulkan_qwen4exp` | Vulkan | Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix（MTP，per-head） | https://hf-mirror.com/agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-GGUF · **fork 用 `Qwen3.8-Flash-Next-ROCmFP4-FAST-v2-ple16.gguf`（per-head PLE）** | ✅（fork 支持 MTP） |
 | `rocm_w4a4` | HIP/W4A4 | Qwen3.8-27B-ROCmI4-MTP-GGUF | https://hf-mirror.com/cafonez/Qwen3.8-27B-ROCmI4-MTP-GGUF | ✅ |
 | `roc_rocmfp4` | HIP/ROCmFP4 | Qwen3.8-27B-ROCmFPX-GGUF | https://hf-mirror.com/agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-GGUF | ✅ |
 | `roc_rocmfp4` | HIP/ROCmFP4 | Ornith-1.5-35B-A3B-ROCmFP4-GGUF | https://hf-mirror.com/julianmb/Ornith-1.5-35B-A3B-ROCmFP4-GGUF | ✅ |
 
+> **Flash-Next 文件选择（重要，与引擎绑定）**：`agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-GGUF` 仓库**同一权重、两种布局**，选哪份由引擎定：
+> - **官方引擎（`vulkan_official`/`roc_official`）→ 用 `v2/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-v2.gguf`**（单张量 `per_layer_token_embd.weight`）——官方能加载，但**只能无投机**（MTP/ngram 均不可用，见下）。
+> - **fork 引擎（`vulkan_qwen4exp`）→ 用 `Qwen3.8-Flash-Next-ROCmFP4-FAST-v2-ple16.gguf`**（per-head `ple_ngram_embd.0..15.weight`）——支持 **MTP 投机**。
+> - MTP 外部草稿 `agentionai/Qwen3.8-Flash-Next-MTP-ROCmFP4-FAST-GGUF`（2.28GB）**仅 fork** 可用；官方加载该草稿报 `blk.0.hc_attn_norm.weight not found`。
+
 > **兼容性说明**：
 > - 官方版 `ROCmFPX/ROCmFPX` **不支持 `--spec-draft-adaptive`**（报 `invalid argument`），DFlash2/自适应投机需用 fixed `--spec-draft-n-max`；不支持 DFlash2 外部草稿（`--spec-type draft-dflash`）。
 > - `roc_official` 与 `vulkan_official` 是同一官方源码的 HIP/Vulkan 两套构建，量化支持范围一致（Q4_0_ROCMFP4/FAST、ROCMI4、Q2-Q8_ROCMFPX 全系列）。
+> - **Flash-Next（qwen4exp）在官方引擎上的适配**：官方源码 `src/models/qwen4exp.cpp` 只读取**单张量** `per_layer_token_embd.weight`；现行 HF per-head 文件 `...-v2-ple16.gguf`（张量 `ple_ngram_embd.0..15.weight`，Laurent fork 布局）官方**读不了**（`per_layer_token_embd.weight not found`）。**`v2/` 单张量** `...-imatrix-v2.gguf` 官方可加载（51.2B 参数单张 PLE 表自动溢出，无需 `--ngram-on-disk`）。**但官方引擎不支持 Flash-Next 的 MTP 外部草稿投机**：`-md Qwen3.8-Flash-Next-MTP-ROCmFP4-FAST.gguf --spec-type draft-mtp` 时草稿加载失败（`blk.0.hc_attn_norm.weight not found`，官方 qwen4exp 草稿按完整层 0..N 迭代，而草稿是 nextn-only 只有第 48 层；模型卡原文确认："plain serving of Flash-Next quants works on official, the external-drafter setup requires our fork"）。**ngram-cache 投机亦为负优化**（接受率 ~9%，decode 反降至 ~2 tok/s）。故官方引擎上 Flash-Next **只能无投机**（实测见速度测试表）；fork `vulkan_qwen4exp` 可跑 MTP（见 fork 历史数据）。
 > - fork 版 `vulkan_qwen4exp` 支持 DFlash2 自适应投机；`rocm_w4a4`/`roc_rocmfp4` 分别侧重 W4A4 / ROCmFP4。
 >
 > 镜像域名用 hf-mirror.com（国内直连）。lemonade 拉取时需 `HF_ENDPOINT=https://hf-mirror.com` + 显式 `--source huggingface`。
@@ -129,32 +135,63 @@ NovaMax 发现本地引擎**不靠 engines.json**，而是扫描磁盘：
 - **输出长度**：`max_tokens=3000`，实际连续输出约 3000 token；decode 仅在累计 ≥1000 token 后取 [1000, 末尾] 稳定段（约 2000 token）统计
 - **场景**：散文/代码 × 思考模式 off/low
 - **加载方式**：每次场景独立冷启动模型（spawn → 测 → kill），杜绝 KVCache 复用污染
-- **投机**：无投机解码 baseline（`-np 2`，固定参数），保证引擎基础速度对比公平
 
-> **方法说明**：本版用**直接 spawn 引擎**测速（官方版 Vulkan 与 lemonade 有 `--spec-draft-adaptive` 不兼容问题，故绕过 lemonade 直接驱动引擎），两个引擎方法完全一致，可公平对比。
+> **方法说明**：本版测试改为**通过 lemonade 加载**（不再直接 spawn），启用模型卡推荐的 **MTP 投机解码**（官方引擎不支持 `--spec-draft-adaptive`，统一用固定 `--spec-draft-n-max`；lemonade 按模型 label 自动注入 `-md`/`--spec-type`）。因此官方版 decode 高于旧版"无投机 baseline"。PREFILL 取服务端 `timings.prompt_per_second`；DECODE 用流式逐 token 时间戳取 **[1000, 末尾] 稳定段**。每场景 `lemonade load → 测 → unload` 冷启动。
 
-### HIP 引擎（`roc_official`）—— Qwen3.8-27B-ROCmI4-MTP-GGUF-Q4_0
-
-| 场景 | PREFILL | DECODE |
-|---|---|---|
-| 散文 think-off | 372.8 t/s | 13.4 tok/s |
-| 代码 think-off | 382.2 t/s | 13.4 tok/s |
-| 散文 think-low | 375.5 t/s | 13.4 tok/s |
-| 代码 think-low | 377.1 t/s | 13.4 tok/s |
-
-### Vulkan 引擎（`vulkan_official`）—— Qwen3.8-27B-ROCmFP4-FAST（主模型）
+### HIP 引擎（`roc_official`）—— Qwen3.8-27B-ROCmI4-MTP-GGUF-Q4_0（内嵌 MTP）
 
 | 场景 | PREFILL | DECODE |
 |---|---|---|
-| 散文 think-off | 114.4 t/s | 13.6 tok/s |
-| 代码 think-off | 114.8 t/s | 13.5 tok/s |
-| 散文 think-low | 109.6 t/s | 13.5 tok/s |
-| 代码 think-low | 109.8 t/s | 13.5 tok/s |
+| 散文 think-off | 434.8 t/s | 20.28 tok/s |
+| 代码 think-off | 435.5 t/s | 33.52 tok/s |
+| 散文 think-low | 435.1 t/s | 19.43 tok/s |
+| 代码 think-low | 428.5 t/s | 22.45 tok/s |
 
-> **测试方法**：直接 spawn 引擎（冷启动，无投机）→ 发 ~1 万 token 长上下文流式请求 → 首个 token 前计 PREFILL（prompt_tokens/首token时间）→ 累计输出 ≥1000 token 后取 [1000, 末尾] 稳定段计 DECODE → kill。每场景重新加载，保证无 KVCache 干扰。
+### HIP 引擎（`roc_official`）—— Ornith-1.5-35B-A3B-ROCmFP4-GGUF（MoE，内嵌 MTP）
+
+| 场景 | PREFILL | DECODE |
+|---|---|---|
+| 散文 think-off | 1203.3 t/s | 59.59 tok/s * |
+| 代码 think-off | 1218.4 t/s | 60.01 tok/s * |
+| 散文 think-low | 1239.7 t/s | 62.43 tok/s |
+| 代码 think-low | 1210.5 t/s | 101.82 tok/s |
+
+### Vulkan 引擎（`vulkan_official`）—— Qwen3.8-27B-ROCmFP4-FAST（DFlash2 投机）
+
+| 场景 | PREFILL | DECODE |
+|---|---|---|
+| 散文 think-off | 112.1 t/s | 21.67 tok/s |
+| 代码 think-off | 111.9 t/s | 33.30 tok/s |
+| 散文 think-low | 108.0 t/s | 23.36 tok/s |
+| 代码 think-low | 108.2 t/s | 32.33 tok/s |
+
+### Vulkan 引擎（`vulkan_official`）—— Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-v2（qwen4exp，v2 单张量，**无投机**）
+
+| 场景 | PREFILL | DECODE |
+|---|---|---|
+| 散文 think-off | 220.1 t/s | 21.53 tok/s |
+| 代码 think-off | 199.1 t/s | 22.12 tok/s |
+| 散文 think-low | 189.7 t/s | 21.06 tok/s |
+| 代码 think-low | 197.8 t/s | 22.18 tok/s |
+
+> 官方引擎不支持 Flash-Next 的 MTP（外部草稿加载失败）且 ngram-cache 为负优化，故官方上 Flash-Next **只能无投机**。参数：`-ngl 99 -fa on -ctk q8_0 -ctv q8_0 --no-mmap -b 2048 -ub 512`。fork `vulkan_qwen4exp` 可跑 MTP（见下方 fork 历史数据）。
+
+### HIP 引擎（`roc_official`）—— Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-v2（qwen4exp，v2 单张量，**无投机**）
+
+| 场景 | PREFILL | DECODE |
+|---|---|---|
+| 散文 think-off | 220.0 t/s | 5.09 tok/s |
+| 代码 think-off | 208.1 t/s | 5.11 tok/s |
+| 散文 think-low | 210.6 t/s | 5.10 tok/s |
+| 代码 think-low | 206.2 t/s | 5.11 tok/s |
+
+> **HIP decode 明显慢于 Vulkan**（~5.1 vs ~21-22 tok/s，约 4 倍）：v2 单张量的 51.2B 参数 PLE 表在 HIP 上落到 host 内存处理，吞吐瓶颈；Vulkan 自动溢出更优。故 Flash-Next 官方推荐用 **Vulkan 引擎**。同样只支持无投机（MTP 官方不可用）。
+
 > **备注**：
-> - **HIP prefill 显著优于 Vulkan**（373-382 vs 110-115 t/s，约 3.4 倍）；decode 两者接近（13.4-13.6 tok/s）——本版测的是**无投机 baseline**（投机解码开启时 decode 更高，见下方 fork 历史数据）。
-> - 官方两引擎是同一源码的 HIP/Vulkan 构建，性能差异主要来自后端；HIP 在 prefill 上有明显优势。
+> - 带 **\*** 的 Ornith think-off 两场景因模型提前停止（仅 281/448 token，未达 1000 token）未取到 [1000,end] 段，用的是服务端全段 `predicted_per_second`；其余场景均为稳定的 [1000,end] 稳定段。
+> - **Qwen3.8-Flash-Next-imatrix（qwen4exp）**：官方引擎**只支持无投机**（MTP 外部草稿加载失败、ngram-cache 为负优化，见上方兼容性说明），实测见上方 Flash-Next 表；使用 `v2/` 单张量文件，参数含 `--no-mmap`。
+> - **HIP prefill 显著优于 Vulkan**（~430 vs ~110 t/s，约 3.9 倍）；MoE 的 Ornith 最快（prefill ~1200 t/s，decode 59-102 tok/s）。
+> - 本机电源档位拉满（整机功耗约 132W），条件与下方 fork 历史数据一致。
 
 ### fork 版引擎历史测速（旧数据，含投机解码）
 
