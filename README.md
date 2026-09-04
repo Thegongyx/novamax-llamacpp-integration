@@ -99,7 +99,7 @@ NovaMax 发现本地引擎**不靠 engines.json**，而是扫描磁盘：
 
 ## 各引擎适配的模型（HF 镜像链接）
 
-### 引擎适配矩阵（5 引擎）
+### 引擎适配矩阵（官方 2 引擎 + fork 1 引擎）
 
 | 引擎目录 | 后端 | 适配模型 | HF 镜像仓库链接 | 满频实测 |
 |---|---|---|---|---|
@@ -110,9 +110,8 @@ NovaMax 发现本地引擎**不靠 engines.json**，而是扫描磁盘：
 | `roc_official` | HIP | Ornith-1.5-35B-A3B-ROCmFP4-GGUF | https://hf-mirror.com/julianmb/Ornith-1.5-35B-A3B-ROCmFP4-GGUF | ✅ |
 | `vulkan_qwen4exp` | Vulkan | Qwen3.8-27B-ROCmFP4-FAST（DFlash2） | https://hf-mirror.com/julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF | ✅ |
 | `vulkan_qwen4exp` | Vulkan | Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix（MTP，per-head） | https://hf-mirror.com/agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-GGUF · **fork 用 `Qwen3.8-Flash-Next-ROCmFP4-FAST-v2-ple16.gguf`（per-head PLE）** | ✅（fork 支持 MTP） |
-| `rocm_w4a4` | HIP/W4A4 | Qwen3.8-27B-ROCmI4-MTP-GGUF | https://hf-mirror.com/cafonez/Qwen3.8-27B-ROCmI4-MTP-GGUF | ✅ |
-| `roc_rocmfp4` | HIP/ROCmFP4 | Qwen3.8-27B-ROCmFPX-GGUF | https://hf-mirror.com/agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-GGUF | ✅ |
-| `roc_rocmfp4` | HIP/ROCmFP4 | Ornith-1.5-35B-A3B-ROCmFP4-GGUF | https://hf-mirror.com/julianmb/Ornith-1.5-35B-A3B-ROCmFP4-GGUF | ✅ |
+
+> **引擎更替说明**：官方项目 `ROCmFPX/ROCmFPX` 的 **`roc_official`（HIP 构建）已可替代此前两个个人/社区 fork 引擎** —— `rocm_w4a4`（charlie12345/ROCmFPX，HIP/W4A4）与 `roc_rocmfp4`（charlie12345/ROCmFPX，HIP/ROCmFP4），后两者已弃用并从 NovaMax 移除。
 
 > **Flash-Next 文件选择（重要，与引擎绑定）**：`agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-GGUF` 仓库**同一权重、两种布局**，选哪份由引擎定：
 > - **官方引擎（`vulkan_official`/`roc_official`）→ 用 `v2/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-v2.gguf`**（单张量 `per_layer_token_embd.weight`）——官方能加载，但**只能无投机**（MTP/ngram 均不可用，见下）。
@@ -123,7 +122,7 @@ NovaMax 发现本地引擎**不靠 engines.json**，而是扫描磁盘：
 > - 官方版 `ROCmFPX/ROCmFPX` **不支持 `--spec-draft-adaptive`**（报 `invalid argument`），DFlash2/自适应投机需用 fixed `--spec-draft-n-max`；不支持 DFlash2 外部草稿（`--spec-type draft-dflash`）。
 > - `roc_official` 与 `vulkan_official` 是同一官方源码的 HIP/Vulkan 两套构建，量化支持范围一致（Q4_0_ROCMFP4/FAST、ROCMI4、Q2-Q8_ROCMFPX 全系列）。
 > - **Flash-Next（qwen4exp）在官方引擎上的适配**：官方源码 `src/models/qwen4exp.cpp` 只读取**单张量** `per_layer_token_embd.weight`；现行 HF per-head 文件 `...-v2-ple16.gguf`（张量 `ple_ngram_embd.0..15.weight`，Laurent fork 布局）官方**读不了**（`per_layer_token_embd.weight not found`）。**`v2/` 单张量** `...-imatrix-v2.gguf` 官方可加载（51.2B 参数单张 PLE 表自动溢出，无需 `--ngram-on-disk`）。**但官方引擎不支持 Flash-Next 的 MTP 外部草稿投机**：`-md Qwen3.8-Flash-Next-MTP-ROCmFP4-FAST.gguf --spec-type draft-mtp` 时草稿加载失败（`blk.0.hc_attn_norm.weight not found`，官方 qwen4exp 草稿按完整层 0..N 迭代，而草稿是 nextn-only 只有第 48 层；模型卡原文确认："plain serving of Flash-Next quants works on official, the external-drafter setup requires our fork"）。**ngram-cache 投机亦为负优化**（接受率 ~9%，decode 反降至 ~2 tok/s）。故官方引擎上 Flash-Next **只能无投机**（实测见速度测试表）；fork `vulkan_qwen4exp` 可跑 MTP（见 fork 历史数据）。
-> - fork 版 `vulkan_qwen4exp` 支持 DFlash2 自适应投机；`rocm_w4a4`/`roc_rocmfp4` 分别侧重 W4A4 / ROCmFP4。
+> - fork 版 `vulkan_qwen4exp` 支持 DFlash2 自适应投机；社区 fork 引擎 `rocm_w4a4`/`roc_rocmfp4` 已被官方 `roc_official` 替代并弃用。
 >
 > 镜像域名用 hf-mirror.com（国内直连）。lemonade 拉取时需 `HF_ENDPOINT=https://hf-mirror.com` + 显式 `--source huggingface`。
 
@@ -214,35 +213,6 @@ NovaMax 发现本地引擎**不靠 engines.json**，而是扫描磁盘：
 | 代码 think-off | 291.0 t/s | 41.3 tok/s |
 | 散文 think-low | 289.3 t/s | 18.3 tok/s |
 | 代码 think-low | 289.9 t/s | 24.4 tok/s |
-
-**`rocm_w4a4`（charlie fork）—— Qwen3.8-27B-ROCmI4-MTP-GGUF-Q4_0**
-
-| 场景 | PREFILL | DECODE |
-|---|---|---|
-| 散文 think-off | 439.6 t/s | 18.9 tok/s |
-| 代码 think-off | 437.4 t/s | 36.6 tok/s |
-| 散文 think-low | 434.6 t/s | 20.2 tok/s |
-| 代码 think-low | 431.5 t/s | 40.6 tok/s |
-
-**`roc_rocmfp4`（charlie fork）—— Qwen3.8-27B-ROCmFPX-GGUF**
-
-| 场景 | PREFILL | DECODE |
-|---|---|---|
-| 散文 think-off | 246.3 t/s | 13.6 tok/s |
-| 代码 think-off | 251.1 t/s | 28.5 tok/s |
-| 散文 think-low | 249.9 t/s | 14.9 tok/s |
-| 代码 think-low | 250.0 t/s | 16.3 tok/s |
-
-**`roc_rocmfp4`（charlie fork）—— Ornith-1.5-35B-A3B-ROCmFP4-GGUF（MoE）**
-
-| 场景 | PREFILL | DECODE |
-|---|---|---|
-| 散文 think-off | **1248.7 t/s** | **86.4 tok/s** |
-| 代码 think-off | **1246.4 t/s** | **82.0 tok/s** |
-| 散文 think-low | **1239.1 t/s** | **85.9 tok/s** |
-| 代码 think-low | **1246.6 t/s** | **79.6 tok/s** |
-
-> **fork 版备注**：`roc_rocmfp4` 的 Ornith-1.5-35B-A3B 是 **MoE 模型**（35B 总参 / 3B 激活），prefill ~1250 t/s、decode ~80-86 tok/s，远快于所有 dense 27B 模型（约 3-5 倍）。此数据为历史实测（含投机解码），与上方官方版"无投机 baseline"方法不同，两者不可直接数值对比。
 
 ## 引用与致谢
 
