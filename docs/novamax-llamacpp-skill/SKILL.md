@@ -29,11 +29,13 @@ NovaMax 启动模型时，从 `novamax.db` 的 `models` 表读取该模型记录
 ```
 遍历 llamacpp 的 variants (rocm / vulkan / cuda / other)
   → 进入 external\llamacpp\<variant>\          # 例 external\llamacpp\rocm
-  → 枚举该目录下所有子目录                      # 例 rocm_w4a4, roc_rocmfp4
+  → 枚举该目录下所有子目录                      # 例 roc_official, vulkan_qwen4exp
   → 对每个子目录调 _isValidEngineDir 判断是否有效
   → 有效则读该目录的 .installed JSON，取 version 字段
   → 加入已安装引擎列表，可在模型参数中作为 engine_version 选用
 ```
+
+> 当前本机引擎：`external\llamacpp\rocm\{roc_official}`、`external\llamacpp\vulkan\{vulkan_official, vulkan_qwen4exp}`。社区 fork 引擎 `rocm_w4a4` / `roc_rocmfp4` **已弃用并从 NovaMax 移除**（官方 `roc_official` 已替代，见 README）。
 
 **结论**：本地自定义引擎**只要两件事就够**——
 
@@ -98,13 +100,18 @@ mtmd.dll
 ```
 id: "custom_Qwen3_8-27B-ROCmI4-MTP-GGUF"   # 模型标识
 user_parameters: { ... }                    # 实际生效的启动参数
-parameters: { ... }                         # 默认参数
+parameters: { ... }                         # 默认参数（模型内置预设，见下方端口坑）
 user_parameters_version: "1.0.0"
-engine_version: "rocm_w4a4"                 # 使用的引擎 variant
+engine_version: "roc_official"              # 使用的引擎 variant（roc_official / vulkan_official / vulkan_qwen4exp 等）
 deleted_parameters: ["ub","b","spec-draft-adaptive"]  # NovaMax 禁止/忽略的参数
 ```
 
 `user_parameters` 里的键会被拼成 llama-server 命令行参数。例如 `--n-gpu-layers 100 --flash-attn on --jinja --parallel 3 --reasoning on --spec-type draft-mtp ... --kv-unified`。
+
+> ⚠️ **手动/自定义引擎模型的 `parameters`（默认预设）必须和默认引擎保持一致，否则会出问题**：
+> - **端口锁死 1234 的坑**：端口取值是 `user_parameters.port || Ue["chat"]`（`Ue={chat:1234, embedding:1278, reranker:1245}`）。若把 `port: 1234` **写进 `parameters`**（模型级预设），`saveUserParameters` 会把"与模型默认值相同的改动"当无变化而**重置/忽略** → webui 改端口不生效、模型永远锁在 1234。
+> - **修复**：`parameters` 里**不要放 `port`**（保持 None，同默认引擎），端口完全交给 `user_parameters.port` 决定，回退 `Ue["chat"]=1234`。
+> - **对齐默认引擎的预设**：默认 llm 引擎 `parameters` 为 `{"context_length":0,"n-gpu-layers":100,"no-mmap":true,"parallel":1,"reasoning":"off","repeat_penalty":1.1,"temperature":0.7,"top_k":40,"top_p":0.9,"version":"1.0.0"}`。**不要写 `load-mode:"nommap"`**（默认引擎用 `no-mmap:true`）、不要写 `port`，temperature 用 0.7。
 
 ### 查询/修改工具
 
@@ -142,6 +149,22 @@ W srv stop: cancel task, id_task = ...
 ### 6. 模型文件必须放对位置（MTP 挂载）
 MTP 草稿模型要能被 lemonade/NovaMax 识别，主模型（含 mmproj/draft）须放 HF 缓存布局 `C:\Users\xu352\.cache\huggingface\hub\models--<org>--<repo>\snapshots\<commit>\`，用 `user.*` 注册跨仓库 draft。放进 `extra_models_dir` 不会被识别为 draft。
 
+### 7. 手动/自定义引擎端口锁死 1234（改端口无效 → 模型不可调用）
+**症状**：默认引擎的模型可在 webui 改端口、跑不同端口；但手动加入的引擎（自定义 `engine_version`）模型**永远锁在 1234**，一旦改端口模型就调用不到。
+
+**根因**（`backend/dist/index.js` + `novamax.db` 实测）：
+- 端口来自 `有效参数.port || Ue["chat"]`（Ue={chat:1234,…}），默认 1234。
+- `getEffectiveParameters` 合并 `{默认参数(Fe,port:1234), 模型 parameters, 用户 user_parameters}`。
+- **若把 `port:1234` 写进模型记录 `parameters`**（手动引擎模型常把整套默认参数写死），`saveUserParameters` 对"与模型默认值相同的改动"作**无变化处理**（重置/忽略）→ webui 改端口不保存，端口永远 1234。
+
+**修复**：把该模型 `novamax.db` 里 `data.parameters.port` 删掉（置 None），并让 `parameters` 与默认引擎预设一致（见上方 B 节）：`no-mmap:true`（不要 `load-mode:"nommap"`）、temperature `0.7`、不写 `port`。改后需**重启 NovaMax 后端**（或重新扫描）生效。
+
+> 备份 db 再改：`C:\Linglong\NovaStudio\NovaMax\data\novamax.db`。
+
+### 8. Flash-Next（qwen4exp）引擎兼容性
+- **官方引擎**（`roc_official`/`vulkan_official`，ROCmFPX/ROCmFPX）：能加载 Flash-Next **v2 单张量**文件，但**只能无投机**（MTP 外部草稿加载失败 `blk.0.hc_attn_norm.weight not found`；ngram-cache 负优化）。
+- **fork 引擎**（`vulkan_qwen4exp`，LaurentZuijdwijk）：支持 per-head 布局 + **MTP 投机**；REAP-288 剪枝版也用它。
+
 ## D. 验证
 
 1. **引擎加载**：`llama-server.exe --list-devices` 能列出 GPU（如 `ROCm0: AMD Radeon 8060S`）。
@@ -152,12 +175,14 @@ MTP 草稿模型要能被 lemonade/NovaMax 识别，主模型（含 mmproj/draft
 
 ## 端口参考（novaairouter 全家桶）
 
+> ⚠️ **当前可用的 OpenAI 网关**：`http://localhost:15050/v1`（novaairouter，OpenAI 兼容，`/v1/models` 返回 JSON）——实测可用，**用这个**。**默认列举的 3001 端口不可用**（原因未知），勿用。
+
 | 端口 | 进程 | 用途 |
 |---|---|---|
 | 1234 | llama-server | 单模型原生 OpenAI API |
 | 15048 | node (nova launcher) | Web UI |
 | 15049/15051 | novaairouter | router（/v1/models 404） |
-| 15050 | novaairouter | OpenAI 兼容 API（JSON models） |
-| 15057 | model-router-plugin | **标准 OpenAI API**（/v1/models + /v1/chat/completions） |
+| **15050** | novaairouter | **OpenAI 兼容 API（JSON models）——当前可用网关** |
+| 15057 | model-router-plugin | 标准 OpenAI API（/v1/models + /v1/chat/completions）* |
 | 19825 | node | NovaMax 后端 API（需 X-OpenCLI header） |
-| 3001 | node | NovaMax Web UI（HTML，非 API） |
+| 3001 | node | NovaMax Web UI（HTML，非 API）——⚠️ **不可用** |
