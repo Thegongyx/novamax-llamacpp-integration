@@ -1,6 +1,6 @@
 ---
 name: novamax-llamacpp-integration
-description: 把本地编译好的自定义 llama.cpp 版本（ROCm/HIP、Vulkan、w4a4 等）注册为 NovaMax 模型引擎，并正确配置模型启动参数。当用户要将编译产物（如 ROCmFPX、LaurentZuijdwijk fork）接入 NovaMax 使用，或排查模型启动/超时/参数兼容问题时使用。
+description: 把本地编译好的自定义 llama.cpp 版本（ROCm/HIP、Vulkan 等）注册为 NovaMax 模型引擎，并正确配置模型启动参数。当用户要将编译产物（如 ROCmFPX 官方主线）接入 NovaMax 使用，或排查模型启动/超时/参数兼容问题时使用。
 ---
 
 # novamax-llamacpp-integration
@@ -29,13 +29,13 @@ NovaMax 启动模型时，从 `novamax.db` 的 `models` 表读取该模型记录
 ```
 遍历 llamacpp 的 variants (rocm / vulkan / cuda / other)
   → 进入 external\llamacpp\<variant>\          # 例 external\llamacpp\rocm
-  → 枚举该目录下所有子目录                      # 例 roc_official, vulkan_qwen4exp
+  → 枚举该目录下所有子目录                      # 例 roc_official, vulkan_official
   → 对每个子目录调 _isValidEngineDir 判断是否有效
   → 有效则读该目录的 .installed JSON，取 version 字段
   → 加入已安装引擎列表，可在模型参数中作为 engine_version 选用
 ```
 
-> 当前本机引擎：`external\llamacpp\rocm\{roc_official}`、`external\llamacpp\vulkan\{vulkan_official, vulkan_qwen4exp}`。社区 fork 引擎 `rocm_w4a4` / `roc_rocmfp4` **已弃用并从 NovaMax 移除**（官方 `roc_official` 已替代，见 README）。
+> 当前本机引擎：`external\llamacpp\rocm\{roc_official}`、`external\llamacpp\vulkan\{vulkan_official}`。两个 official 均已吸收 fork 能力（per-head/MTP/spec-draft-adaptive/DFlash2），是推荐使用的引擎。
 
 **结论**：本地自定义引擎**只要两件事就够**——
 
@@ -49,7 +49,7 @@ NovaMax 启动模型时，从 `novamax.db` 的 `models` 表读取该模型记录
 
 ## A. 引擎扫描时会被识别的文件结构
 
-NovaMax 扫描 `external\llamacpp\rocm\<variant>\` 目录，需要的文件（以已装好的 rocm_w4a4 为例，14 个文件）：
+NovaMax 扫描 `external\llamacpp\rocm\<variant>\` 目录，需要的文件（以 `roc_official` 为例）：
 
 ```
 .installed         # 标记文件（JSON），缺失导致 NovaMax 显示"安装不完整"
@@ -71,10 +71,10 @@ mtmd.dll
 > 不同编译产物依赖的 DLL 不同：HIP 版带 `ggml-hip.dll`/`amdhip64_7.dll`，Vulkan 版带 `ggml-vulkan.dll`（62MB）等。**把编译目录里的全部 exe/dll 一起拷入，缺一个 NovaMax 会报引擎不完整或启动失败。**
 
 > **不同后端文件数与打包结构不同**：
-> - **rocm / HIP 版（如 rocm_w4a4, roc_rocmfp4）**：`llama-server.exe` ~4.2MB（逻辑内嵌单文件），共 **14 文件**。
-> - **vulkan 版（如 vulkan_qwen4exp）**：`llama-server.exe` 仅 **10KB（启动壳）**，核心逻辑在同目录 `llama-server-impl.dll`，共 **12 文件**。
+> - **rocm / HIP 版（`roc_official`）**：`llama-server.exe` ~10KB（启动壳），核心逻辑在同目录 `llama-server-impl.dll`，全套 **14 文件**（含 `ggml-hip.dll`/`amdhip64_7.dll`）。
+> - **vulkan 版（`vulkan_official`）**：`llama-server.exe` 仅 **10KB（启动壳）**，核心逻辑在同目录 `llama-server-impl.dll`，共 **12 文件**（含 `ggml-vulkan.dll` + `ggml-rocmfpx-vulkan.dll` 插件）。
 >
-> 两者都是新版 llama.cpp 的两种打包方式——vulkan 的 exe 只是转发器，**只要同目录有对应 `*-impl.dll` 即可独立运行**。验证可用：`llama-server.exe --list-devices` 能列出 `Vulkan0` / `ROCm0` 设备即依赖齐全。
+> 两者都是新版 llama.cpp 的打包方式——exe 只是转发器，**只要同目录有对应 `*-impl.dll` 即可独立运行**。验证可用：`llama-server.exe --list-devices` 能列出 `Vulkan0` / `ROCm0` 设备即依赖齐全。
 
 ### `.installed` 标记文件
 
@@ -84,8 +84,8 @@ mtmd.dll
 {
   "runtime": null,
   "installed_at": "2026-09-02T00:05:40.020Z",
-  "version": "rocm_w4a4",
-  "archiveSha256": "local-bin-w4a4-custom-build",
+  "version": "roc_official",
+  "archiveSha256": "official-repo-hip-gfx1151",
   "variant": "rocm",
   "engine": "llamacpp"
 }
@@ -124,6 +124,38 @@ mtmd.dll
 
 > ⚠️ **附带**：Vulkan 版重编后**多出 `ggml-rocmfpx-vulkan.dll`（92MB，`ROCMFPX_VULKAN_PLUGIN=ON` 的 qwen4exp / ROCmFPx 后端插件）**，须一并拷入引擎目录；HIP 版无此独立插件（ROCmFPx 编入 `ggml-hip.dll`）。
 
+### vulkan_official 使用：ROCmFPXVulkan0 快速后端（Charlie ROCmFP4）
+
+> 官方 `vulkan_official` **默认用普通 `Vulkan0` 后端（较慢）**；快速通道是可选插件后端 **`ROCmFPXVulkan0`**（`ROCMFPX_VULKAN_PLUGIN=ON` 编译的 "Charlie ROCmFP4 Vulkan" 路径，**速度与其他支线（fork）一致**）。插件**不替换** `Vulkan0`，须显式加载 + 选择。
+
+**两个必要 DLL**（须同一编译，同置于引擎目录）：
+- `rocmfpx-vulkan-plugin.dll`（ABI 包装器，`ROCMFPX_PLUGIN_PATH` 指向它）
+- `ggml-rocmfpx-vulkan.dll`（~92MB 兄弟后端）
+
+**启用步骤**：
+1. 设用户级环境变量（持久化；**必须重启 NovaMax 后端**，llama-server 子进程才继承）：
+   ```powershell
+   [Environment]::SetEnvironmentVariable('ROCMFPX_PLUGIN_PATH',
+     'C:\Linglong\NovaStudio\NovaMax\external\llamacpp\vulkan\vulkan_official\rocmfpx-vulkan-plugin.dll','User')
+   ```
+2. 模型参数（webui 加额外/自定义参数；键映射成 `--<key> <value>`）：
+
+   | 参数键 | 值 | 作用 |
+   |---|---|---|
+   | **`device`** | `ROCmFPXVulkan0` | **关键**——选快速插件后端（默认 `Vulkan0` 慢）|
+   | `ctk` | `q8_0` | KV cache 键量化（提速 prefill/decode）|
+   | `ctv` | `q8_0` | KV cache 值量化（提速）|
+
+   ⚠️ **别用 `dev`**：`dev`→`--dev`，llama-server 报 `invalid argument: --dev`；须用 **`device`**→`--device ROCmFPXVulkan0`（`-dev`/`--device` 是该版本的设备 flag）。
+3. 启动模型，日志应出现：
+   ```
+   rocmfpx-plugin: info: registered 1 ROCmFPX Vulkan device(s)
+   rocmfpx-plugin: info: loaded rocmfpx-vulkan-charlie
+   ```
+   且 `llama-server.exe --list-devices` 同时列出 `Vulkan0` 和 **`ROCmFPXVulkan0`**。
+
+> **排错**：若报 `invalid device: ROCmFPXVulkan0` = 插件未加载，多半是**未重启 NovaMax**（环境变量没被 llama-server 子进程继承）。
+
 ## B. 模型参数配置（novamax.db）
 
 模型记录存在 `novamax.db` 的 `models` 表，`data` 字段是一段 JSON，关键子字段：
@@ -133,7 +165,7 @@ id: "custom_Qwen3_8-27B-ROCmI4-MTP-GGUF"   # 模型标识
 user_parameters: { ... }                    # 实际生效的启动参数
 parameters: { ... }                         # 默认参数（模型内置预设，见下方端口坑）
 user_parameters_version: "1.0.0"
-engine_version: "roc_official"              # 使用的引擎 variant（roc_official / vulkan_official / vulkan_qwen4exp 等）
+engine_version: "roc_official"              # 使用的引擎 variant（roc_official / vulkan_official）
 deleted_parameters: ["ub","b","spec-draft-adaptive"]  # NovaMax 禁止/忽略的参数
 ```
 
@@ -164,10 +196,9 @@ W srv stop: cancel task, id_task = ...
 ### 2. thinking_effort 传了但没生效
 命令行里 `--chat-template-kwargs {"thinking_effort":"low"}`，但日志模板显示 `Reasoning effort is set to xhigh`。说明模板默认值覆盖了传参，或 kwargs 传递没被模板采用。需确认模型内置模板对 thinking_effort 的处理，或用模型侧模板覆盖。
 
-### 3. 参数兼容性（不同 fork 支持参数不同）
-- **bin-w4a4（charlie12345/ROCmFPX）**：`--kv-unified -kvu`、`--spec-draft-device ROCm0`、`--reasoning on/off`、`--reasoning-budget N` ✓；**不支持** `--spec-draft-adaptive`（报 invalid argument）、`--reasoning-effort`。
-- **LaurentZuijdwijk fork**：支持 `--spec-draft-adaptive`、`--reasoning-effort`。
-- **MTP 模型**：`--spec-draft-adaptive` 不可用，需手动 `--spec-draft-n-max`。`chat_template_kwargs` 会被 NovaMax 存为字符串。
+### 3. 参数兼容性
+- **官方引擎（`roc_official`/`vulkan_official`，新版 HEAD `c3b1c99`）**：支持 `--spec-draft-adaptive`、`--spec-draft-n-max`、DFlash2、MTP 投机、per-head（Flash-Next）。旧版（HEAD `2249677`）不支持 `--spec-draft-adaptive`。
+- **MTP 模型**：`--spec-draft-adaptive` 可用；`chat_template_kwargs` 会被 NovaMax 存为字符串。
 - **`--spec-mtp-strict-qwen`**：若日志出现 warning 可考虑加，保证投机解码与无投机输出一致。
 - 不确定参数是否被支持时，用 `llama-server.exe --help` 或跑一次看日志。
 
@@ -193,8 +224,8 @@ MTP 草稿模型要能被 lemonade/NovaMax 识别，主模型（含 mmproj/draft
 > 备份 db 再改：`C:\Linglong\NovaStudio\NovaMax\data\novamax.db`。
 
 ### 8. Flash-Next（qwen4exp）引擎兼容性
-- **官方引擎**（`roc_official`/`vulkan_official`，ROCmFPX/ROCmFPX）：能加载 Flash-Next **v2 单张量**文件，但**只能无投机**（MTP 外部草稿加载失败 `blk.0.hc_attn_norm.weight not found`；ngram-cache 负优化）。
-- **fork 引擎**（`vulkan_qwen4exp`，LaurentZuijdwijk）：支持 per-head 布局 + **MTP 投机**；REAP-288 剪枝版也用它。
+- **官方引擎**（`roc_official`/`vulkan_official`，新版 HEAD `c3b1c99`）：支持 Flash-Next **per-head PLE（`...-v2-ple16.gguf`）** 与 **v2 单张量**两种布局，并支持 **MTP 投机**（`--spec-type draft-mtp` + 外部草稿）；REAP-288 剪枝版亦可跑。
+- 旧版（HEAD `2249677`）只读单张量、只能无投机（MTP 草稿报 `blk.0.hc_attn_norm.weight not found`；ngram-cache 负优化）。
 
 ## D. 验证
 
