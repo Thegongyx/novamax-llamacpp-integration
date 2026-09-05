@@ -93,6 +93,37 @@ mtmd.dll
 
 `archiveSha256` 用于区分本地/官方来源；`version` 须与引擎目录名一致。`.installed` 缺失是 NovaMax 后台显示"安装不完整"的最常见原因。
 
+### 官方引擎默认无内嵌 web UI（及 web UI 补充来源）
+
+**事实**：`ROCmFPX/ROCmFPX`（官方主线）源码树里有 `tools/ui`（LlamaUI，SvelteKit PWA），但**默认构建不会内嵌 web UI**。原因：
+
+- `scripts/ui-assets.cmake` 只在 `tools/ui/dist/index.html` 存在时才嵌入（Priority 1：预构建产物）。
+- 源码树里的 `tools/ui` **只是源码，没有构建出的 dist**（从未跑 npm 构建），所以 `llama-server-impl.dll` 里的 `ui.h` 是**空壳**（默认 395B，未定义 `LLAMA_UI_HAS_ASSETS`）。
+- 结果：官方引擎的 `http://localhost:<port>/` 返回 `{"error":{"message":"File Not Found","type":"not_found_error","code":404}}`。
+
+**所以官方引擎（`roc_official` / `vulkan_official`）默认是纯 API 服务**，模型端口 `/` 没有聊天网页。
+
+**web UI 从哪里补充的**（本机已做，2026-09-06）：
+
+1. **预构建 UI 来源**：llama.cpp 官方 HF bucket **`ggml-org/llama-ui`** 的 `dist.tar.gz`，经中国镜像拉取：
+   ```powershell
+   curl.exe -sL -o llama-ui-dist.tar.gz https://hf-mirror.com/buckets/ggml-org/llama-ui/resolve/latest/dist.tar.gz
+   ```
+   （`-L` 跟随 302；`huggingface.co` 需镜像，直连 `HTTP 000`。）
+2. **解压到** `ROCmFPX-official\tools\ui\dist\`（含 `index.html`、`manifest.webmanifest`、`sw.js`、`_app/immutable/`）。
+3. **增量重编**：复用各自构建目录跑 cmake，`llama-ui-assets`（ALL 目标）自动走 Priority 1 嵌入：
+   ```powershell
+   cmake --build build-win-vulkan  --target llama-server   # Vulkan 版（Visual Studio 生成器）
+   cmake --build build-win-hip     --target llama-server   # HIP 版（Ninja 生成器，需 rocm-7.14 在 PATH）
+   ```
+   日志出现 `-- UI: using pre-built assets from .../tools/ui/dist` 即成功；`llama-server-impl.dll` 从 3.2/3.6MB 涨到 **~13MB**（二进制含 `<html`、`bundle`，`ui.h` 定义 `LLAMA_UI_HAS_ASSETS`）。
+4. **部署到 NovaMax**：把 `llama-server.exe` + `llama-server-impl.dll` + 全套依赖 DLL 拷到 `external\llamacpp\<variant>\<engine>\`（`roc_official` / `vulkan_official`）。
+
+**补充后**：模型端口 `/` 能出聊天页，"使用"按钮（前端 `window.open(http://<host>:<model.port>)`）不再 404。
+**验证**：`llama-server.exe --list-devices` 见 `Vulkan0`/`ROCm0`，且 `llama-server-impl.dll` 二进制含 `<html`。
+
+> ⚠️ **附带**：Vulkan 版重编后**多出 `ggml-rocmfpx-vulkan.dll`（92MB，`ROCMFPX_VULKAN_PLUGIN=ON` 的 qwen4exp / ROCmFPx 后端插件）**，须一并拷入引擎目录；HIP 版无此独立插件（ROCmFPx 编入 `ggml-hip.dll`）。
+
 ## B. 模型参数配置（novamax.db）
 
 模型记录存在 `novamax.db` 的 `models` 表，`data` 字段是一段 JSON，关键子字段：
