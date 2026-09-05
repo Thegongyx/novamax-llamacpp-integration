@@ -110,6 +110,7 @@ NovaMax 发现本地引擎**不靠 engines.json**，而是扫描磁盘：
 | `roc_official` | HIP | Ornith-1.5-35B-A3B-ROCmFP4-GGUF | https://hf-mirror.com/julianmb/Ornith-1.5-35B-A3B-ROCmFP4-GGUF | ✅ |
 | `vulkan_qwen4exp` | Vulkan | Qwen3.8-27B-ROCmFP4-FAST（DFlash2） | https://hf-mirror.com/julianmb/Qwen-3.8-27B-ROCmFP4-FAST-GGUF | ✅ |
 | `vulkan_qwen4exp` | Vulkan | Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix（MTP，per-head） | https://hf-mirror.com/agentionai/Qwen3.8-Flash-Next-ROCmFP4-FAST-imatrix-GGUF · **fork 用 `Qwen3.8-Flash-Next-ROCmFP4-FAST-v2-ple16.gguf`（per-head PLE）** | ✅（fork 支持 MTP） |
+| `vulkan_qwen4exp` | Vulkan | sh0wie-Qwen3.8-Flash-Next-REAP-288-Q4_0_ROCMFP4_STRIX_LEAN（REAP-288 剪枝） | https://hf-mirror.com/rcmorano/sh0wie-Qwen3.8-Flash-Next-REAP-288-ROCMFPX · 文件 `sh0wie-Qwen3.8-Flash-Next-REAP-288-Q4_0_ROCMFP4_STRIX_LEAN.gguf` | ✅（无投机，见下测速） |
 
 > **引擎更替说明**：官方项目 `ROCmFPX/ROCmFPX` 的 **`roc_official`（HIP 构建）已可替代此前两个个人/社区 fork 引擎** —— `rocm_w4a4`（charlie12345/ROCmFPX，HIP/W4A4）与 `roc_rocmfp4`（charlie12345/ROCmFPX，HIP/ROCmFP4），后两者已弃用并从 NovaMax 移除。
 
@@ -213,6 +214,17 @@ NovaMax 发现本地引擎**不靠 engines.json**，而是扫描磁盘：
 | 代码 think-off | 291.0 t/s | 41.3 tok/s |
 | 散文 think-low | 289.3 t/s | 18.3 tok/s |
 | 代码 think-low | 289.9 t/s | 24.4 tok/s |
+
+**`vulkan_qwen4exp`（Laurent fork）—— sh0wie-Qwen3.8-Flash-Next-REAP-288-Q4_0_ROCMFP4_STRIX_LEAN（REAP-288 剪枝，无投机）**
+
+| 场景 | PREFILL | DECODE |
+|---|---|---|
+| 散文 think-off | 417.1 t/s | 26.68 tok/s * |
+| 代码 think-off | 441.6 t/s | 30.02 tok/s |
+| 散文 think-low | 454.7 t/s | 24.26 tok/s |
+| 代码 think-low | 435.9 t/s | 28.96 tok/s |
+
+> 参数：`-ngl 99 -fa on -ctk q8_0 -ctv q8_0 --no-mmap -b 2048 -ub 512`（含 `--no-mmap`）。模型卡要求 Laurent fork（`vulkan_qwen4exp`）Vulkan 后端。REAP-288 为剪枝版，**prefill ~420-455 t/s（比官方全量 Flash-Next 的 ~200 t/s 快约 2 倍）**，decode ~24-30 tok/s。\* = think-off 早停（未达 1000 token）用全段 pred_ps。
 
 ## 引用与致谢
 
