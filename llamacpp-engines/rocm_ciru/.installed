@@ -1,0 +1,8 @@
+{
+  "runtime": null,
+  "archiveSha256": "local-ciru-rocmfpx-kairic-gfx1151",
+  "installed_at": "2026-09-06T07:36:27.413Z",
+  "version": "rocm_ciru",
+  "variant": "rocm",
+  "engine": "llamacpp"
+}

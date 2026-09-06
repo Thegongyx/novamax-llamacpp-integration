@@ -1,8 +1,0 @@
-{
-  "runtime": null,
-  "version": "vulkan_official",
-  "engine": "llamacpp",
-  "archiveSha256": "official-repo-vulkan-gfx1151",
-  "variant": "vulkan",
-  "installed_at": "2026-09-03T13:39:00.230Z"
-}

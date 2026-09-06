@@ -1,0 +1,8 @@
+{
+  "runtime": null,
+  "version": "roc_official",
+  "engine": "llamacpp",
+  "archiveSha256": "official-repo-hip-gfx1151",
+  "variant": "rocm",
+  "installed_at": "2026-09-03T13:39:00.144Z"
+}

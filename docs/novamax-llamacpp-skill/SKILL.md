@@ -1,9 +1,9 @@
 ---
-name: novamax-llamacpp-integration
+name: llamacpp-win-gfx1151-integration
 description: 把本地编译好的自定义 llama.cpp 版本（ROCm/HIP、Vulkan 等）注册为 NovaMax 模型引擎，并正确配置模型启动参数。当用户要将编译产物（如 ROCmFPX 官方主线）接入 NovaMax 使用，或排查模型启动/超时/参数兼容问题时使用。
 ---
 
-# novamax-llamacpp-integration
+# llamacpp-win-gfx1151-integration
 
 把本地编译出的 llama.cpp 可执行文件（含依赖 DLL）注册为 NovaMax 的 llamacpp 引擎，并在 NovaMax 数据层配置模型启动参数。覆盖引擎目录、`.installed` 标记、模型数据库参数、启动命令生成、常见坑。
 

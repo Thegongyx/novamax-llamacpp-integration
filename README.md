@@ -1,28 +1,43 @@
-# novamax-llamacpp-integration
+# llamacpp-win-gfx1151-integration
 
-把本地编译好的自定义 llama.cpp 版本接入 NovaMax（AMD 平台）的完整方案与可用引擎资源包。
+本仓库的**主要目的**是沉淀：各类 **ROCmFPX / ROCmFP4 版 llama.cpp 引擎** 在
+**Windows + AMD gfx1151 GPU（Radeon 8060S / Strix Halo）** 环境下的——
+
+- **编译方法**（见 `docs\build\*.md`，含通用 HIP 版与 ciru-rocmfpx Kairic Edge 分支版）；
+- 以及 **编译好的引擎**（`llamacpp-engines\` 内各引擎目录，含全部依赖 DLL，可直接本地推理）。
+
+**附带功能**：把这些引擎打包成 **NovaMax 可用的适配版**。`llamacpp-engines\` 内每个引擎目录
+即"完整编译产物 + `.installed` 适配标记"，NovaMax 通过 `.installed` 识别即可选用
+（详见下文「（附带）NovaMax 适配」）。NovaMax 适配是打包后的额外便利，**不是本仓库的主要目的**。
 
 ## 目录结构
 
 ```
-novamax-llamacpp-integration\
-├── README.md                            ← 本文件（包说明 / 快速上手 / 引用致谢）
+llamacpp-win-gfx1151-integration\
+├── README.md                            ← 本文件（引擎总览 / 编译方法入口 / NovaMax 适配说明）
 ├── docs\                                ← 文档
+│   ├── build\                           ← 【主】编译方法
+│   │   ├── BUILD-ROCM-HIP-GENERIC.md    ← Windows HIP/ROCm 通用编译（gfx1151）
+│   │   └── BUILD-CIRU-ROCMFPX-WINDOWS.md← ciru-rocmfpx Kairic Edge（Windows + 3 处 Windows 移植）
 │   └── novamax-llamacpp-skill\
-│       └── SKILL.md                     ← 详细技能文档（流程 + 常见坑）
-└── novamax-adapters\                    ← NovaMax 适配引擎（含 .installed，可直接复用）
+│       └── SKILL.md                     ← 【附】NovaMax 接入详细技能文档
+└── llamacpp-engines\                    ← 【主】编译好的引擎（含全部依赖 DLL），并附 .installed 适配标记
     ├── roc_official\                    ← 官方版：HIP/ROCm（官方 ROCmFPX 主线）
     ├── vulkan_official\                 ← 官方版：Vulkan（官方 ROCmFPX 主线）
     ├── rocm_w4a4\                       ← fork版：HIP/W4A4（charlie12345/ROCmFPX）
     ├── roc_rocmfp4\                     ← fork版：HIP/ROCmFP4（charlie12345/ROCmFPX）
+    ├── rocm_ciru\                       ← fork版：HIP/Kairic Edge（ciru-rocmfpx，Qwen3.8-27B IU4 Kairic Edge）
     └── vulkan_qwen4exp\                 ← fork版：Vulkan/qwen4exp（LaurentZuijdwijk）
 ```
 
-> 说明：`novamax-adapters\` 内每个引擎目录即完整编译产物 + `.installed` 适配标记（NovaMax 仅通过 `.installed` 识别引擎，见下文"引擎发现原理"）。原始编译产物与适配版仅差一个 `.installed` 文件，故不单独存放原件。
+> 说明：`llamacpp-engines\` 内每个引擎目录 = **完整编译产物** + `.installed` 适配标记。
+> 编译产物本身可直接用 `llama-server.exe --list-devices` / `--version` 验证；`.installed` 仅是为
+> 让 NovaMax 能识别该引擎而附带的标记（NovaMax 仅通过 `.installed` 识别引擎，见下文「引擎发现原理」）。
+> 原始编译产物与适配版仅差一个 `.installed` 文件，故不单独存放原件。
 
 ## 引擎一览
 
-本包含 **5 个引擎**：2 个官方版（来自官方主线 `ROCmFPX/ROCmFPX`）+ 3 个 fork 版（来自 charlie12345/ROCmFPX 与 LaurentZuijdwijk 两个 fork）。
+本包含 **6 个引擎**：2 个官方版（来自官方主线 `ROCmFPX/ROCmFPX`）+ 4 个 fork 版（来自 charlie12345/ROCmFPX、ciru-rocmfpx 与 LaurentZuijdwijk 的 fork）。
 
 | 引擎目录 | 来源 | variant 归属 | llama-server.exe |
 |---|---|---|---|
@@ -30,13 +45,32 @@ novamax-llamacpp-integration\
 | `vulkan_official` | `ROCmFPX/ROCmFPX`（Vulkan，gfx1151） | vulkan | ~10KB（启动壳，核心在 `llama-server-impl.dll`） |
 | `rocm_w4a4` | charlie12345/ROCmFPX @ main（HIP/W4A4） | rocm | ~4.2MB（单文件） |
 | `roc_rocmfp4` | charlie12345/ROCmFPX @ main（HIP/ROCmFP4） | rocm | ~4.2MB（单文件） |
+| `rocm_ciru` | ciru-rocmfpx @ `release/kairic-edge-qwen38-27b-v1.2`（HIP/Kairic Edge，IU4） | rocm | ~4.1MB（单文件） |
 | `vulkan_qwen4exp` | LaurentZuijdwijk/llama.cpp @ `vulkan/qwen4exp-rocmfpx` | vulkan | ~10KB（启动壳，核心在 `llama-server-impl.dll`） |
 
 > 引擎都已**实测可用**：从各自目录运行 `llama-server.exe --list-devices` 均能列出 GPU（`ROCm0` / `Vulkan0: AMD Radeon 8060S`），依赖齐全。
 
 > **重要（2026-09 更新）**：官方 `roc_official` / `vulkan_official` 现已**吸收 fork 全部能力**——支持 per-head PLE（`ple_ngram`）+ **MTP 投机** + `--spec-draft-adaptive` + DFlash2，**速度与其他支线（`vulkan_qwen4exp` / `rocm_w4a4`）一致**。下方 fork 测速数据即对应官方引擎的表现，两者可互相替代；fork 引擎已被官方引擎取代（推荐改用 official）。
 
-## 快速上手：接入 NovaMax
+## 编译方法（主）
+
+本仓库**核心**是把这些引擎在 **Windows + gfx1151** 下的编译方法落成文档，并附带已编译产物：
+
+| 文档 | 目标引擎 | 说明 |
+|---|---|---|
+| [`docs\build\BUILD-ROCM-HIP-GENERIC.md`](docs/build/BUILD-ROCM-HIP-GENERIC.md) | HIP/ROCm 通用版 | Windows HIP/ROCm 通用编译（rocm-7.14 clang + MSVC 14.44，gfx1151） |
+| [`docs\build\BUILD-CIRU-ROCMFPX-WINDOWS.md`](docs/build/BUILD-CIRU-ROCMFPX-WINDOWS.md) | ciru-rocmfpx Kairic Edge | ciru 分支（Qwen3.8-27B IU4 Kairic Edge / PromptForge），含 3 处 Windows 移植与踩坑 |
+
+各引擎的**完整编译产物**见 `llamacpp-engines\<引擎>\`（含全部依赖 DLL，可直接运行；
+`llama-server.exe --list-devices` 应列出 `ROCm0` / `Vulkan0`）。引擎性能实测见下文
+「满电源频率速度测试」。
+
+---
+
+## （附带）NovaMax 适配
+
+> 以下章节为**附带功能**：把上面编译好的引擎注册为 NovaMax 可用引擎。若你只是想本地跑引擎，
+> 直接使用 `llamacpp-engines\<引擎>\llama-server.exe` 即可，无需看这部分。
 
 ### 1. 拷贝引擎到 NovaMax 引擎目录
 
@@ -48,6 +82,7 @@ variant 归属决定目标目录：
 | `vulkan_official` | `C:\Linglong\NovaStudio\NovaMax\external\llamacpp\vulkan\`（目录可能需新建） |
 | `rocm_w4a4` | `C:\Linglong\NovaStudio\NovaMax\external\llamacpp\rocm\` |
 | `roc_rocmfp4` | `C:\Linglong\NovaStudio\NovaMax\external\llamacpp\rocm\` |
+| `rocm_ciru` | `C:\Linglong\NovaStudio\NovaMax\external\llamacpp\rocm\` |
 | `vulkan_qwen4exp` | `C:\Linglong\NovaStudio\NovaMax\external\llamacpp\vulkan\`（目录可能需新建） |
 
 ```powershell
@@ -57,28 +92,7 @@ New-Item -ItemType Directory -Path $dst -Force
 Copy-Item -Path ".\vulkan_official\*" -Destination $dst -Recurse -Force
 ```
 
-### 2. 确保 `.installed` 存在且正确
-
-每个引擎目录根必须有 `.installed` 文件（本包已带）：
-
-```json
-{
-  "runtime": null,
-  "installed_at": "2026-09-02T00:05:40.020Z",
-  "version": "vulkan_official",
-  "archiveSha256": "official-repo-vulkan-gfx1151",
-  "variant": "vulkan",
-  "engine": "llamacpp"
-}
-```
-
-- `version` 须与目录名一致
-- `variant` 须与 backend 对应（rocm / vulkan）
-- `archiveSha256` 用于区分本地/官方（本地自定义填 `local-*`）
-
-### 3. 重新扫描 / 重载
-
-引擎放好后，在 NovaMax UI 重新扫描/重载（或重启后端），即可在模型参数里把 `engine_version` 选为该引擎。
+> 本包每个引擎已带 `.installed` 标记。NovaMax 靠 `.installed` + 目录名识别引擎（发现机制、`.installed` 字段说明、重载步骤、常见坑 → 见 `docs\novamax-llamacpp-skill\SKILL.md`）。
 
 ## vulkan_official 使用：ROCmFPXVulkan0 快速后端（Charlie ROCmFP4）
 
@@ -279,8 +293,8 @@ NovaMax 发现本地引擎**不靠 engines.json**，而是扫描磁盘：
 
 | 引擎目录 | 来源仓库/分支 | 本机编译参数 |
 |---|---|---|
-| `novamax-adapters\roc_official` | ROCmFPX/ROCmFPX @ main（HIP，gfx1151） | `-DGGML_HIP=ON -DGGML_VULKAN=OFF -DGGML_HIP_FORCE_MMQ=ON -DCMAKE_HIP_ARCHITECTURES=gfx1151` + rocm-7.14 clang |
-| `novamax-adapters\vulkan_official` | ROCmFPX/ROCmFPX @ main（Vulkan，gfx1151） | `-DGGML_VULKAN=ON -DGGML_HIP=OFF -DGGML_CUDA=OFF` + MSVC 14.44 + VULKAN_SDK 1.4.357.0 |
+| `llamacpp-engines\roc_official` | ROCmFPX/ROCmFPX @ main（HIP，gfx1151） | `-DGGML_HIP=ON -DGGML_VULKAN=OFF -DGGML_HIP_FORCE_MMQ=ON -DCMAKE_HIP_ARCHITECTURES=gfx1151` + rocm-7.14 clang |
+| `llamacpp-engines\vulkan_official` | ROCmFPX/ROCmFPX @ main（Vulkan，gfx1151） | `-DGGML_VULKAN=ON -DGGML_HIP=OFF -DGGML_CUDA=OFF` + MSVC 14.44 + VULKAN_SDK 1.4.357.0 |
 
 ### 致谢
 
