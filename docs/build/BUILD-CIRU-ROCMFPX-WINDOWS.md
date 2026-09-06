@@ -185,6 +185,24 @@ Kairic Edge 是在 **Linux/GCC** 上认证的，AI 生成的 `PromptForge` 相�
 - `madvise`/`posix_fadvise` 为**空实现**
 - 定义 `ssize_t` / `PROT_READ` / `MAP_PRIVATE` / `MAP_FAILED` / `MADV_DONTNEED` / `O_CLOEXEC` 等
 
+> ⚠️ **必须让 `open` 以二进制模式打开（`_O_BINARY`）——运行期才会暴露的坑**：
+> Windows 的 `_open` **默认以"文本模式"**打开文件（除非加 `_O_BINARY`），文本模式会做 CRLF 换行转换、
+> 并把 `0x1A`(Ctrl-Z) 当作 EOF。`.pfs` 侧车是几 GB 的**二进制**文件，文本模式下 `_read` 会在遇到
+> 任意 `0x0A`/`0x1A` 字节时提前返回 0 → 你写的 `mmap` shim 读不满 → 返回 `MAP_FAILED`。
+> **症状**（启动模型时）：`promptforge: IU4 sidecar mmap failed` → `PromptForge initialization failed`
+> → 后续 `failed to initialize ROCm0 backend` 甚至 `llama.dll` 崩溃（0xC0000005）。
+> **修复**：把 shim 里的 `O_CLOEXEC` 定义成 **同时带上 `_O_BINARY`**，这样代码里的
+> `open(path, O_RDONLY | O_CLOEXEC)` 展开为 `_open(path, O_RDONLY | _O_NOINHERIT | _O_BINARY)`：
+>
+> ```c
+> #ifndef O_CLOEXEC
+> #  define O_CLOEXEC (_O_NOINHERIT | _O_BINARY)
+> #endif
+> ```
+>
+> （这影响所有 `open` 调用，包括 `load_sidecar` / `load_iu4_sidecar` / `load_gdn_*`，全部应以二进制读。）
+> 只改这一个宏即可，`pread` 用的是同一 fd、同一二进制打开，无需单独处理。
+
 然后在两个 `.cu` 的包含区改为：
 
 ```c
@@ -308,6 +326,40 @@ $env:PROMPTFORGE_GDN_OUTPUT_SIDECAR   = "<model_dir>\...-GDN-Output.pfs"
 ```
 
 启动后日志应出现：`Kairic Edge: enabled (ngram=24/64/64, M65 verifier=strict-compact)`。
+
+> ⚠️ **`LLAMA_MTP_CPU_ARGMAX_FASTPATH=1` 与 `--spec-draft-backend-sampling` + `--spec-draft-p-min 0` 必须成对**：
+> 该环境变量开启 MTP CPU 贪心 argmax 快速路径，若只设变量、命令行缺 `--spec-draft-backend-sampling`
+> 或 `--spec-draft-p-min` 不为 `0`，启动会在 `common/speculative.cpp` 处 **`GGML_ABORT`** 直接退出：
+> `MTP CPU argmax fast path requires backend sampling and p_min=0`（表现为进程启动即崩溃）。上面完整命令
+> 已带齐这三项，**照抄即可**；若你自定义参数，务必保留 `--spec-draft-backend-sampling` 与
+> `--spec-draft-p-min 0.0`（配套 `--spec-draft-p-split 0.10`）。
+
+### 8.1 关闭贪心快速 / 兼容模式（接 agent 必读）
+
+`LLAMA_TARGET_GREEDY_ARGMAX_FASTPATH` 控制 **target 模型的贪心 argmax 快速路径**（服务器直接在
+`tools/server/server-task.cpp` 读取）：
+
+- **`=1`（默认，快速）**：只接受**纯贪心**请求——`temperature=0 / top_k=0/1 / top_p=1 / min_p=0`，且
+  **不能带 `logprobs/概率`、`grammar`（工具调用）、`logit_bias`、`LoRA`、`reasoning budget`、多补全、惩罚**。
+  **任一不满足 → 启动后发请求直接 HTTP 400**：
+  `Exact-Q8 argmax accepts only one unmodified greedy completion (...) with no probabilities, penalties, grammar, logit bias, LoRA, or reasoning budget; ... disable the argmax fast path otherwise`。
+  ⚠️ 这是**请求被拒**，不是启动失败——服务本身起来了，只是请求不符合贪心约束。
+
+- **`=0`（兼容模式）**：关闭 target 贪心快速路径，**放行采样 / 概率 / 工具调用 / grammar / logit_bias** 等
+  正常请求。代价是**不再走贪心 argmax 快速路径**（略慢，约 -10%）。
+
+> **为什么 agent 大多要关闭**：agent（如 Hermes）通常发**工具调用（grammar）/ 采样（temperature>0）/ 概率（logprobs）**
+> 请求——这些都是贪心快速路径明确拒绝的。因此**如果启动后要连 agent / 工具调用，务必把该变量设为 `0`**。
+
+```powershell
+# （用户级，设置后重启 NovaMax 后端，llama-server 子进程才继承）
+[Environment]::SetEnvironmentVariable('LLAMA_TARGET_GREEDY_ARGMAX_FASTPATH', '0', 'User')
+```
+
+> 注意：`KAIRIC_EDGE_COMPATIBILITY_MODE` **只被 shell 启动脚本 `run-kairic-edge-gfx1151.sh` 读取**，
+> 由它换算成上面的 `LLAMA_TARGET_GREEDY_ARGMAX_FASTPATH`；**NovaMax 直接 spawn llama-server 时服务器
+> 不读 `KAIRIC_EDGE_COMPATIBILITY_MODE`**，所以要么只设 `LLAMA_TARGET_GREEDY_ARGMAX_FASTPATH`（推荐），
+> 要么确保 shell 变量和被换算出的值一致。
 
 ---
 
