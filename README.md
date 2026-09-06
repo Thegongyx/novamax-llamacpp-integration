@@ -18,7 +18,8 @@ llamacpp-win-gfx1151-integration\
 ├── docs\                                ← 文档
 │   ├── build\                           ← 【主】编译方法
 │   │   ├── BUILD-ROCM-HIP-GENERIC.md    ← Windows HIP/ROCm 通用编译（gfx1151）
-│   │   └── BUILD-CIRU-ROCMFPX-WINDOWS.md← ciru-rocmfpx Kairic Edge（Windows + 3 处 Windows 移植）
+│   │   ├── BUILD-CIRU-ROCMFPX-WINDOWS.md← ciru-rocmfpx Kairic Edge（Windows + 3 处 Windows 移植）
+│   │   └── BUILD-VULKAN-ROCMFPX-WINDOWS.md ← ROCmFPX 官方 Vulkan 版（vulkan_official + ROCmFPXVulkan0 插件）
 │   └── novamax-llamacpp-skill\
 │       └── SKILL.md                     ← 【附】NovaMax 接入详细技能文档
 └── llamacpp-engines\                    ← 【主】编译好的引擎（含全部依赖 DLL），并附 .installed 适配标记
@@ -60,6 +61,7 @@ llamacpp-win-gfx1151-integration\
 |---|---|---|
 | [`docs\build\BUILD-ROCM-HIP-GENERIC.md`](docs/build/BUILD-ROCM-HIP-GENERIC.md) | HIP/ROCm 通用版 | Windows HIP/ROCm 通用编译（rocm-7.14 clang + MSVC 14.44，gfx1151） |
 | [`docs\build\BUILD-CIRU-ROCMFPX-WINDOWS.md`](docs/build/BUILD-CIRU-ROCMFPX-WINDOWS.md) | ciru-rocmfpx Kairic Edge | ciru 分支（Qwen3.8-27B IU4 Kairic Edge / PromptForge），含 3 处 Windows 移植与踩坑 |
+| [`docs\build\BUILD-VULKAN-ROCMFPX-WINDOWS.md`](docs/build/BUILD-VULKAN-ROCMFPX-WINDOWS.md) | `vulkan_official`（官方主线 Vulkan） | Windows Vulkan 编译（MSVC + VULKAN_SDK 1.4.357.0），含 `ROCmFPXVulkan0` 快速后端与使用 |
 
 各引擎的**完整编译产物**见 `llamacpp-engines\<引擎>\`（含全部依赖 DLL，可直接运行；
 `llama-server.exe --list-devices` 应列出 `ROCm0` / `Vulkan0`）。引擎性能实测见下文
@@ -94,61 +96,6 @@ Copy-Item -Path ".\vulkan_official\*" -Destination $dst -Recurse -Force
 
 > 本包每个引擎已带 `.installed` 标记。NovaMax 靠 `.installed` + 目录名识别引擎（发现机制、`.installed` 字段说明、重载步骤、常见坑 → 见 `docs\novamax-llamacpp-skill\SKILL.md`）。
 
-### 2. Kairic Edge（`rocm_ciru` 引擎）模型配置
-
-完整配置（含**实测性能基准**、**环境变量**、**`user_parameters` 参数表**、**关闭贪心快速/兼容模式**、常见坑）
-已移至 [`docs/build/BUILD-CIRU-ROCMFPX-WINDOWS.md`](docs/build/BUILD-CIRU-ROCMFPX-WINDOWS.md)（§8.2）。
-
-## vulkan_official 使用：ROCmFPXVulkan0 快速后端（Charlie ROCmFP4）
-
-> 官方 `vulkan_official` **默认用普通 `Vulkan0` 后端（较慢）**；快速通道是可选插件后端 **`ROCmFPXVulkan0`**（`ROCMFPX_VULKAN_PLUGIN=ON` 编译的 "Charlie ROCmFP4 Vulkan" 路径，速度与 `vulkan_qwen4exp` 相当）。插件**不替换** `Vulkan0`，须显式加载 + 选择。
-
-**两个必要 DLL**（须同一编译，同置于引擎目录）：
-- `rocmfpx-vulkan-plugin.dll`（ABI 包装器，`ROCMFPX_PLUGIN_PATH` 指向它）
-- `ggml-rocmfpx-vulkan.dll`（~92MB 兄弟后端）
-
-**启用步骤**：
-1. 设用户级环境变量（持久化；**必须重启 NovaMax 后端**，llama-server 子进程才继承）：
-   ```powershell
-   [Environment]::SetEnvironmentVariable('ROCMFPX_PLUGIN_PATH',
-     'C:\Linglong\NovaStudio\NovaMax\external\llamacpp\vulkan\vulkan_official\rocmfpx-vulkan-plugin.dll','User')
-   ```
-2. 模型参数（webui 加额外/自定义参数；键映射成 `--<key> <value>`）：
-
-   | 参数键 | 值 | 作用 |
-   |---|---|---|
-   | **`device`** | `ROCmFPXVulkan0` | **关键**——选快速插件后端（默认 `Vulkan0` 慢）|
-   | `ctk` | `q8_0` | KV cache 键量化（提速 prefill/decode）|
-   | `ctv` | `q8_0` | KV cache 值量化（提速）|
-
-   ⚠️ **别用 `dev`**：`dev`→`--dev`，llama-server 报 `invalid argument: --dev`；须用 **`device`**→`--device ROCmFPXVulkan0`。
-3. 启动模型，日志应出现：
-   ```
-   rocmfpx-plugin: info: registered 1 ROCmFPX Vulkan device(s)
-   rocmfpx-plugin: info: loaded rocmfpx-vulkan-charlie
-   ```
-   且 `llama-server.exe --list-devices` 同时列出 `Vulkan0` 和 **`ROCmFPXVulkan0`**。
-
-> **排错**：若报 `invalid device: ROCmFPXVulkan0` = 插件未加载，多半是**未重启 NovaMax**（环境变量没被 llama-server 子进程继承）。
-
-## 引擎发现原理（关键）
-
-NovaMax 发现本地引擎**不靠 engines.json**，而是扫描磁盘：
-
-```
-遍历 llamacpp 的 variants(rocm/vulkan/cuda/other)
-→ external\llamacpp\<variant>\
-→ 枚举子目录
-→ _isValidEngineDir 校验 → 读 .installed → 提取 version
-```
-
-只需：**正确 variant 目录 + 有效 `.installed`**。
-
-## 模型参数放哪
-
-模型启动参数存在 `C:\Linglong\NovaStudio\NovaMax\data\novamax.db`（SQLite）的 `models` 表 `user_parameters` 字段，NovaMax 据此生成 llama-server 命令行。
-
-详细流程、参数说明 → 见 `docs\novamax-llamacpp-skill\SKILL.md`。
 
 ## 各引擎适配的模型（HF 镜像链接）
 
